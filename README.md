@@ -5,7 +5,7 @@ Trees Movie Night Bot on AWS Beanstalk
 
 
 This method uses the  AWS Elastic Beanstalk Command Line Tool from http://aws.amazon.com/code/6752709412171743 to deploy an
-AWS EB instance from the CLI.
+AWS Node.js EB instance from the CLI.
 
 
 Follow the instructions from http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/create_deploy_nodejs.sdlc.html on how to
