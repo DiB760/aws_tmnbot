@@ -10,7 +10,7 @@ AWS EB instance from the CLI.
 Follow the intructions from http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/create_deploy_nodejs.sdlc.html on how to
 configure/setup an EB instance from the CLI if you are unsure how.
 
-To star it should be as simple as:
+To start it should be as simple as:
 $git clone https://github.com/obmas/aws_tmnbot.git
 $cd aws_tmnbot
 $eb start
