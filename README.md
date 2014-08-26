@@ -21,3 +21,7 @@ $cd aws_tmnbot
 $eb start
 
 $git aws.push
+
+
+Thank you to Simon for Trees Movie Night and making the bot code available:
+https://github.com/Simonify/treesmovienight-bot
