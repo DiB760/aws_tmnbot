@@ -1,1 +1,4 @@
+.ebextensions/01system.config .elasticbeanstalk/ .elasticbeanstalk/optionsettings.TMNBotServer-env .elasticbeanstalk/config
 .ebextensions/01system.config
+.elasticbeanstalk/config
+.elasticbeanstalk/optionsettings.TMNBotServer-env
