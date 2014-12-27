@@ -1,13 +1,15 @@
-var _ = require('underscore');
-var util = require('util');
+var Primus = require('primus');
 var EventEmitter = require('events').EventEmitter;
-var SockJS = require('sockjs-client-node');
-var TMNBot = function (options) {
+var request = require('request');
+var util = require('util');
+var _ = require('underscore');
+
+module.exports = TMNBot;
+
+function TMNBot(options) {
   this.options = _.extend({
-    endpoint: 'http://www.treesmovienight.com/socket',
-    sockjs: {
-      debug: false
-    }
+    url: 'http://www.treesmovienight.com',
+    pathname: '/socket'
   }, options)
   this.authenticated = false;
   this.ready = false;
@@ -17,19 +19,43 @@ var TMNBot = function (options) {
   this.retryCount = 0;
   this.maxRetries = 5;
   this.retryTimeout = 1000;
-  this.reconnect = {
-    maxAttempts: 15,
-    delay: 1000,
-    maxDelay: 5000,
-    attempts: 0,
-    reconnecting: false
-  };
   this.callQueue = [];
-  this.listen();
-  this.connect();
+  this.loadSocketOptions(function (options) {
+    this.createServer(options);
+    this.listen();
+    this.connect();
+  }.bind(this));
 };
 
 util.inherits(TMNBot, EventEmitter);
+
+TMNBot.prototype.loadSocketOptions = function (cb) {
+  var url = this.options.url;
+
+  if (url[url.length - 1] !== '/') {
+    url += '/';
+  }
+
+  if (this.options.pathname[0] === '/') {
+    url += this.options.pathname.slice(1);
+  } else {
+    url += this.options.pathname;
+  }
+
+  url += '/spec';
+
+  request({url: url, json:true}, function (err, req, json) {
+    if (!err) {
+      cb(json);
+    } else {
+      this.log('Could not fetch socket information.');
+    }
+  }.bind(this));
+};
+
+TMNBot.prototype.log = function () {
+  return console.log.apply(console, ['[TMNBot]'].concat(Array.prototype.slice.call(arguments, 0)));
+};
 
 TMNBot.prototype.call = function () {
   if (this.authenticated) {
@@ -56,7 +82,7 @@ TMNBot.prototype._call = function () {
     data.arguments = _arguments;
   }
 
-  return this.sockjs.send(JSON.stringify(data));
+  return this.socket.write(data);
 };
 
 TMNBot.prototype.storeCallback = function (cb) {
@@ -71,36 +97,38 @@ TMNBot.prototype.runCallback = function (cb, args) {
   }
 };
 
+TMNBot.prototype.createServer = function (options) {
+  this.server = Primus.createSocket(options);
+};
+
 TMNBot.prototype.listen = function () {
   this.on('ready', this.onReady.bind(this));
 };
 
 TMNBot.prototype.connect = function () {
-  if (this.sockjs) {
-    this.close();
+  if (this.socket) {
+    this.socket.end();
+    this.socket = null;
   }
-  
-  console.log('Connecting...');
 
-  this.sockjs = new SockJS(this.options.endpoint, ['websocket'], this.options.sockjs);
+  this.log('Connecting...',this.options.url);
 
-  if (this.sockjs.readyState === SockJS.CLOSING) {
-    this.onClose();
-  }
-  
-  this.sockjs.onmessage = this.onMessage.bind(this);
-  this.sockjs.onclose = this.onClose.bind(this);
+  this.socket = new this.server(this.options.url);
+  this.socket.on('data', this.onData.bind(this));
+  this.socket.on('end', this.onClose.bind(this));
 };
 
-TMNBot.prototype.onMessage = function (event) {
-  var data;
-  try {
-    data = JSON.parse(event.data);
-    if (typeof data === 'string') {
+TMNBot.prototype.onData = function (data) {
+  this.log(data);
+  if (typeof data === 'string') {
+    try {
       data = JSON.parse(data);
-    }
-  } catch (e) {}
-  
+      if (typeof data === 'string') {
+        data = JSON.parse(data);
+      }
+    } catch (e) {}
+  }
+
   if (typeof data === 'object') {
     if (typeof data.callback === 'string') {
       this.runCallback(data.callback, data.arguments);
@@ -112,21 +140,17 @@ TMNBot.prototype.onMessage = function (event) {
 
 TMNBot.prototype.onClose = function () {
   this.markAsOffline();
-  this.reconnect.reconnecting = false;
-  this.tryToReconnect();
 };
 
 TMNBot.prototype.onReady = function () {
-  console.log('Server is ready...');
+  this.log('Server is ready...');
   this.ready = true;
-  this.reconnect.reconnecting = false;
-  this.reconnect.attempts = 0;
   this.sendReady();
 };
 
 TMNBot.prototype.sendReady = function () {
   var self = this;
-  console.log('Client is ready...');
+  this.log('Client is ready...');
   this._call('ready', function(err, data) {
     if (!err) {
       self.connected = true;
@@ -142,28 +166,12 @@ TMNBot.prototype.sendReady = function () {
   });
 };
 
-TMNBot.prototype.tryToReconnect = function () {
-  if (this.reconnect.reconnecting) { return false; }
-  this.reconnect.attempts++;
-  if (this.reconnect.attempts > this.reconnect.maxAttempts) {
-    window.location.href = window.location.href.split('#')[0];
-  } else {
-    this.reconnect.reconnecting = true;
-    var self = this;
-    var delay = this.reconnect.attempts * this.reconnect.delay;
-        delay = Math.min(delay, this.reconnect.maxDelay);
-    setTimeout(function () {
-      self.connect();
-    }, delay);
-  }
-};
-
 TMNBot.prototype._authenticate = function () {
   var self = this;
-  console.log('Authenticating...');
+  this.log('Authenticating...');
   this._call('user.authenticate', { username: this.options.username, password: this.options.password }, function(err, data) {
     if (!err) {
-      console.log('Authenticated!');
+      self.log('Authenticated!');
       self.user = data.user;
       self.authenticated = true;
       self.flushCallQueue();
@@ -194,9 +202,10 @@ TMNBot.prototype.markAsOffline = function () {
 };
 
 TMNBot.prototype.close = function () {
-  this.sockjs.close();
+  this.socket.end();
   this.markAsOffline();
-  this.sockjs = null;
+  this.server = null;
+  this.socket = null;
 };
 
 module.exports = TMNBot;
